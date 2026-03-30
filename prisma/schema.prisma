@@ -1,0 +1,144 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "sqlite"
+  url       = "file:./dev.db"
+}
+
+// ------------------------------------
+// 93Moove Core Models (Spec-compliant)
+// ------------------------------------
+
+model User {
+  id               String    @id
+  email            String    @unique
+  name             String    @default("")
+  emailVerified    Boolean   @default(false)
+  image            String?
+  role             String    @default("ADHERENT_ADULTE")
+  passwordHash     String    @default("")
+  quotientFamilial Float?
+  quotientStatut   String?   // pending | validated | refused
+  banned           Boolean?  @default(false)
+  banReason        String?
+  banExpires       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Better Auth Relations
+  sessions         AuthSession[]
+  accounts         Account[]
+
+  // Domain Relations
+  sessionsInstruites Session[]      @relation("InstructorSession")
+  inscriptions       Inscription[]
+  enfants            ProfilEnfant[]
+}
+
+model Session {
+  id            Int       @id @default(autoincrement())
+  type          String    // cours | activite
+  title         String
+  description   String?
+  date          DateTime
+  duree         Int       // Minutes
+  image         String?   // URL of the session photo
+  salleId       Int?
+  instructeurId String
+  capaciteMax   Int?
+  statut        String    @default("VALIDATED") // VALIDATED | PENDING | REJECTED
+
+  salle         Salle?    @relation(fields: [salleId], references: [id])
+  instructeur   User      @relation("InstructorSession", fields: [instructeurId], references: [id])
+  inscriptions  Inscription[]
+}
+
+model Inscription {
+  id         Int           @id @default(autoincrement())
+  userId     String
+  sessionId  Int
+  enfantId   Int?
+  createdAt  DateTime      @default(now())
+
+  user       User          @relation(fields: [userId], references: [id])
+  session    Session       @relation(fields: [sessionId], references: [id])
+  enfant     ProfilEnfant? @relation(fields: [enfantId], references: [id])
+  
+  @@unique([userId, sessionId, enfantId])
+}
+
+model Salle {
+  id          Int       @id @default(autoincrement())
+  name        String
+  capacity    Int
+  disponible  Boolean   @default(true)
+  sessions    Session[]
+}
+
+model Equipement {
+  id          Int       @id @default(autoincrement())
+  name        String
+  type        String    // sono | tapis | materiel...
+  disponible  Boolean   @default(true)
+}
+
+model ProfilEnfant {
+  id            Int           @id @default(autoincrement())
+  nom           String
+  prenom        String
+  dateNaissance DateTime
+  parentId      String
+  heuresMois    Float         @default(0)
+
+  parent        User          @relation(fields: [parentId], references: [id])
+  inscriptions  Inscription[]
+}
+
+// ------------------------------------
+// Better Auth Core Models
+// ------------------------------------
+
+model AuthSession {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+}

@@ -1,0 +1,149 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------
+// 93Moove Core Models (Spec-compliant)
+// ------------------------------------
+
+enum Role {
+  ADHERENT_ADULTE
+  MINEUR
+  PROFESSEUR
+  ANIMATEUR
+  ADMIN
+}
+
+model User {
+  id               Int      @id @default(autoincrement())
+  email            String   @unique
+  name             String   @default("")
+  emailVerified    Boolean  @default(false)
+  image            String?
+  role             Role     @default(ADHERENT_ADULTE)
+  passwordHash     String   @default("")
+  quotientFamilial Float?
+  quotientStatut   String? // pending | validated | refused
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Better Auth Relations
+  sessions AuthSession[]
+  accounts Account[]
+
+  // Domain Relations
+  sessionsInstruites Session[]      @relation("InstructorSession")
+  inscriptions       Inscription[]
+  enfants            ProfilEnfant[]
+}
+
+model Session {
+  id            Int      @id @default(autoincrement())
+  type          String // cours | activite
+  title         String
+  description   String?
+  date          DateTime
+  duree         Int // Minutes
+  salleId       Int?
+  instructeurId Int
+  capaciteMax   Int?
+
+  salle        Salle?        @relation(fields: [salleId], references: [id])
+  instructeur  User          @relation("InstructorSession", fields: [instructeurId], references: [id])
+  inscriptions Inscription[]
+}
+
+model Inscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  sessionId Int
+  enfantId  Int?
+  createdAt DateTime @default(now())
+
+  user    User          @relation(fields: [userId], references: [id])
+  session Session       @relation(fields: [sessionId], references: [id])
+  enfant  ProfilEnfant? @relation(fields: [enfantId], references: [id])
+
+  @@unique([userId, sessionId, enfantId])
+}
+
+model Salle {
+  id         Int       @id @default(autoincrement())
+  name       String
+  capacity   Int
+  disponible Boolean   @default(true)
+  sessions   Session[]
+}
+
+model Equipement {
+  id         Int     @id @default(autoincrement())
+  name       String
+  type       String // sono | tapis | materiel...
+  disponible Boolean @default(true)
+}
+
+model ProfilEnfant {
+  id            Int      @id @default(autoincrement())
+  nom           String
+  prenom        String
+  dateNaissance DateTime
+  parentId      Int
+  heuresMois    Float    @default(0)
+
+  parent       User          @relation(fields: [parentId], references: [id])
+  inscriptions Inscription[]
+}
+
+// ------------------------------------
+// Better Auth Core Models
+// ------------------------------------
+
+model AuthSession {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                Int
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+}

@@ -1,0 +1,201 @@
+import { PrismaClient } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import Link from "next/link";
+import { Role } from "@/lib/constants";
+
+const prisma = new PrismaClient();
+
+export default async function Page() {
+    const users = await prisma.user.findMany();
+    const sessions = await prisma.session.findMany({
+        orderBy: { date: 'asc' },
+        include: { 
+            instructeur: true,
+            _count: { select: { inscriptions: true } }
+        }
+    });
+
+    const pendingSessions = sessions.filter(s => s.statut === "PENDING");
+    const validatedSessions = sessions.filter(s => s.statut === "VALIDATED");
+
+    async function updateSessionStatus(formData: FormData) {
+        "use server";
+        const sessionId = Number(formData.get("sessionId"));
+        const newStatus = formData.get("status") as string;
+        await prisma.session.update({
+            where: { id: sessionId },
+            data: { statut: newStatus }
+        });
+        revalidatePath("/modifsession");
+        revalidatePath("/sessions");
+        revalidatePath("/instructeurpanel");
+    }
+
+    // ... existing assignInstructor, deleteUser, deleteSession ...
+
+    return (
+        <div className="flex min-h-screen bg-gray-100">
+            {/* Sidebar ... */}
+            <aside className="w-64 bg-white shadow-md">
+                <div className="p-6 font-bold text-purple-700 text-2xl">AdminPanel</div>
+                <nav className="mt-8">
+                    <a href="#" className="block py-3 px-6 text-gray-700 hover:bg-purple-100 font-medium">Utilisateurs</a>
+                    <a href="#pending" className="block py-3 px-6 text-gray-700 hover:bg-purple-100 font-medium flex items-center">
+                        Approbations
+                        {pendingSessions.length > 0 && <span className="ml-2 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{pendingSessions.length}</span>}
+                    </a>
+                    <a href="#sessions" className="block py-3 px-6 text-gray-700 hover:bg-purple-100 font-medium">Toutes les Sessions</a>
+                    <Link href="/ajoutsession" className="block py-3 px-6 text-gray-700 hover:bg-purple-100 font-medium">Ajouter session</Link>
+                </nav>
+            </aside>
+
+            <div className="flex-1 flex flex-col overflow-y-auto h-screen">
+                <main className="p-6 space-y-8">
+                    {/* Stats ... */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-purple-500">
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Utilisateurs</p>
+                            <h2 className="text-3xl font-bold text-gray-800 mt-2">{users.length}</h2>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-green-500">
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Sessions Validées</p>
+                            <h2 className="text-3xl font-bold text-gray-800 mt-2">{validatedSessions.length}</h2>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-sm border-l-4 border-yellow-500">
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">En Attente</p>
+                            <h2 className="text-3xl font-bold text-gray-800 mt-2">{pendingSessions.length}</h2>
+                        </div>
+                    </div>
+
+                    {/* Pending Approvals Section */}
+                    {pendingSessions.length > 0 && (
+                        <div id="pending" className="bg-white rounded-xl shadow-sm border border-yellow-200 overflow-hidden">
+                            <div className="p-4 bg-yellow-50 border-b border-yellow-100 flex items-center space-x-2">
+                                <div className="p-2 bg-yellow-500 rounded-lg text-white">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                </div>
+                                <span className="font-bold text-yellow-800">Demandes de session en attente</span>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-gray-50 text-gray-500 uppercase text-[10px] font-bold">
+                                        <tr>
+                                            <th className="p-4">Session</th>
+                                            <th className="p-4">Instructeur</th>
+                                            <th className="p-4">Date</th>
+                                            <th className="p-4 text-center">Décision</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {pendingSessions.map((session) => (
+                                            <tr key={session.id} className="hover:bg-gray-50 transition-colors">
+                                                <td className="p-4">
+                                                    <div className="font-bold text-gray-800">{session.title}</div>
+                                                    <div className="text-xs text-gray-500">{session.type}</div>
+                                                </td>
+                                                <td className="p-4 font-medium text-gray-600">{session.instructeur?.name}</td>
+                                                <td className="p-4 text-sm text-gray-500">{session.date.toLocaleString("fr-FR")}</td>
+                                                <td className="p-4">
+                                                    <div className="flex justify-center space-x-2">
+                                                        <form action={updateSessionStatus}>
+                                                            <input type="hidden" name="sessionId" value={session.id} />
+                                                            <input type="hidden" name="status" value="VALIDATED" />
+                                                            <button className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                                                                Approuver
+                                                            </button>
+                                                        </form>
+                                                        <form action={deleteSession}>
+                                                            <input type="hidden" name="sessionId" value={session.id} />
+                                                            <button className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                                                                Refuser
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Users List ... */}
+
+                    {/* All Sessions List */}
+                    <div id="sessions" className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="p-4 border-b flex justify-between items-center bg-gray-50/50">
+                            <span className="font-bold text-gray-800 tracking-tight">Liste complète des sessions</span>
+                            <Link href="/ajoutsession" className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition shadow-sm">
+                                + Nouvelle Session
+                            </Link>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50/50 text-gray-500 uppercase text-[10px] font-bold">
+                                    <tr>
+                                        <th className="p-4">Session</th>
+                                        <th className="p-4">Instructeur</th>
+                                        <th className="p-4">Inscrits</th>
+                                        <th className="p-4">Statut</th>
+                                        <th className="p-4 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {sessions.map((session) => (
+                                        <tr key={session.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4">
+                                                <div className="font-bold text-gray-800">{session.title}</div>
+                                                <div className="text-xs text-gray-500">{session.type} - {session.date.toLocaleDateString("fr-FR")}</div>
+                                            </td>
+                                            <td className="p-4">
+                                                <form action={assignInstructor} className="flex space-x-2">
+                                                    <input type="hidden" name="sessionId" value={session.id} />
+                                                    <select name="instructorId" required className="text-xs border border-gray-200 rounded-md p-1.5 bg-white shadow-sm focus:ring-1 focus:ring-purple-500 outline-none">
+                                                        <option value="">{session.instructeur?.name || "Assigner..."}</option>
+                                                        {validatedInstructors.map(inst => (
+                                                            <option key={inst.id} value={inst.id}>{inst.name}</option>
+                                                        ))}
+                                                    </select>
+                                                    <button type="submit" className="text-purple-600 font-bold text-[10px] uppercase">MAJ</button>
+                                                </form>
+                                            </td>
+                                            <td className="p-4">
+                                                <Link href={`/sessions/${session.id}`} className="flex items-center space-x-1.5 group cursor-pointer">
+                                                    <div className="w-8 h-8 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                                                        {session._count.inscriptions}
+                                                    </div>
+                                                    <span className="text-xs text-gray-400 group-hover:text-purple-600 transition-colors uppercase font-bold tracking-widest leading-none" style={{ fontSize: '9px' }}>Voir qui</span>
+                                                </Link>
+                                            </td>
+                                            <td className="p-4">
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                                    session.statut === 'VALIDATED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                                }`}>
+                                                    {session.statut}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <div className="flex justify-center space-x-3">
+                                                    <Link href={`/modifsession/${session.id}`} className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors" title="Modifier">
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                                    </Link>
+                                                    <form action={deleteSession}>
+                                                        <input type="hidden" name="sessionId" value={session.id} />
+                                                        <button type="submit" className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors" title="Supprimer">
+                                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    );
+}
