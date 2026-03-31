@@ -70,5 +70,3 @@ Ouvrez [http://localhost:3000](http://localhost:3000) dans votre navigateur.
 - **Toutes les Sessions** : `/sessions`
 - **Espace Instructeur** : `/instructeurpanel`
 - **Admin Panel** : `/modifsession`
-# 93-move
-# 93.moove
