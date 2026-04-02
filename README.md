@@ -9,7 +9,7 @@
 - **Validation de Compte** : Les nouveaux instructeurs doivent être approuvés par un administrateur.
 - **Système d'Invitations** : L'admin peut inviter un instructeur spécifique à une session.
 
-## Guide de vérification (QA) ✅
+## Guide de vérification (QA) 
 
 Voici comment tester les nouvelles fonctionnalités étape par étape :
 
