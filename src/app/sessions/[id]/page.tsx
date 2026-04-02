@@ -9,8 +9,7 @@ const prisma = new PrismaClient();
 
 /**
  * Page Détails d'une Session
- * Affiche les informations complètes d'une session et permet l'inscription des utilisateurs.
- * Illustre la fonctionnalité d'association 1:N vers 1:N (Inscription - porteuse de données optionnelles comme enfantId).
+ * Affiche les informations complètes d'une session et permet l'inscription des adultes et de leurs enfants.
  */
 export default async function SessionDetailsPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params;
@@ -33,17 +32,29 @@ export default async function SessionDetailsPage({ params }: { params: Promise<{
         headers: await headers()
     });
 
-    const isFull = sessionDetail.capaciteMax && sessionDetail._count.inscriptions >= sessionDetail.capaciteMax;
-
-    const isEnrolled = authSession?.user?.id ? await prisma.inscription.findFirst({
-        where: {
-            userId: authSession.user.id as any,
-            sessionId: sessionDetail.id as any,
-            enfantId: null as any
+    // Récupérer les données de l'utilisateur (enfants + inscriptions existantes pour cette session)
+    const userData = authSession?.user?.id ? await prisma.user.findUnique({
+        where: { id: authSession.user.id },
+        include: {
+            enfants: true,
+            inscriptions: {
+                where: { sessionId: sessionDetail.id }
+            }
         }
     }) : null;
 
-    async function enrollAction() {
+    const isFull = sessionDetail.capaciteMax && sessionDetail._count.inscriptions >= sessionDetail.capaciteMax;
+
+    // Détermine si un participant spécifique (soit l'utilisateur, soit un enfant) est déjà inscrit
+    const checkEnrollment = (participantId?: number) => {
+        if (!userData) return false;
+        if (participantId) {
+            return userData.inscriptions.some(i => i.enfantId === participantId);
+        }
+        return userData.inscriptions.some(i => i.enfantId === null);
+    };
+
+    async function enrollAction(formData: FormData) {
         "use server";
         const session = await auth.api.getSession({
             headers: await headers()
@@ -51,14 +62,19 @@ export default async function SessionDetailsPage({ params }: { params: Promise<{
         
         if (!session?.user?.id) return;
 
+        const participantId = formData.get("participantId") as string; // 'self' or enfantId string
+        const enfantId = participantId === 'self' ? null : parseInt(participantId);
+
         try {
             await prisma.inscription.create({
                 data: {
-                    userId: session.user.id as any,
-                    sessionId: sessionDetail!.id as any,
+                    userId: session.user.id,
+                    sessionId: sessionDetail!.id,
+                    enfantId: enfantId as any
                 } as any
             });
             revalidatePath(`/sessions/${id}`);
+            revalidatePath(`/profil`);
         } catch (e) {
             console.error("Enrollment failed:", e);
         }
@@ -168,24 +184,63 @@ export default async function SessionDetailsPage({ params }: { params: Promise<{
                                     Se connecter
                                 </Link>
                             </div>
-                        ) : isEnrolled ? (
-                            <div className="text-center">
-                                <button disabled className="w-full bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 font-bold py-4 rounded-xl cursor-default flex items-center justify-center">
-                                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                                    Déjà inscrit
-                                </button>
-                                <p className="text-xs text-gray-500 mt-2">Vous participez à cette session.</p>
-                            </div>
-                        ) : isFull ? (
-                            <button disabled className="w-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 font-bold py-4 rounded-xl cursor-not-allowed">
-                                Complet
-                            </button>
                         ) : (
-                            <form action={enrollAction}>
-                                <button type="submit" className="w-full bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-purple-500/30 hover:-translate-y-1 transition-all duration-300">
-                                    M&apos;inscrire à cette séance
-                                </button>
-                            </form>
+                            <div className="space-y-6">
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest text-center border-b border-gray-100 dark:border-gray-800 pb-2">Choisir un profil</h4>
+                                
+                                {/* Self Enrollment */}
+                                <div className="flex flex-col space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm font-bold text-gray-900 dark:text-white">Moi-même</span>
+                                        {checkEnrollment() ? (
+                                            <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black uppercase tracking-tight">Inscrit</span>
+                                        ) : isFull ? (
+                                            <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-black uppercase tracking-tight">Complet</span>
+                                        ) : null}
+                                    </div>
+                                    {!checkEnrollment() && !isFull && (
+                                        <form action={enrollAction}>
+                                            <input type="hidden" name="participantId" value="self" />
+                                            <button type="submit" className="w-full bg-gray-900 dark:bg-white dark:text-gray-900 text-white text-xs font-bold py-2 rounded-lg hover:opacity-80 transition-opacity">
+                                                M&apos;inscrire
+                                            </button>
+                                        </form>
+                                    )}
+                                </div>
+
+                                {/* Children Enrollment */}
+                                {userData?.enfants && userData.enfants.length > 0 && (
+                                    <div className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                                        {userData.enfants.map(enfant => (
+                                            <div key={enfant.id} className="flex flex-col space-y-2">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-sm font-bold text-gray-900 dark:text-white">{enfant.prenom}</span>
+                                                    {checkEnrollment(enfant.id) ? (
+                                                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-black uppercase tracking-tight">Inscrit</span>
+                                                    ) : isFull ? (
+                                                        <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-black uppercase tracking-tight">Complet</span>
+                                                    ) : null}
+                                                </div>
+                                                {!checkEnrollment(enfant.id) && !isFull && (
+                                                    <form action={enrollAction}>
+                                                        <input type="hidden" name="participantId" value={enfant.id.toString()} />
+                                                        <button type="submit" className="w-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-xs font-bold py-2 rounded-lg hover:from-purple-400 hover:to-indigo-400 transition-all">
+                                                            Inscrire {enfant.prenom}
+                                                        </button>
+                                                    </form>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {userData?.enfants && userData.enfants.length === 0 && (
+                                    <div className="text-center py-2">
+                                        <p className="text-[10px] text-gray-500 italic">Aucun enfant enregistré sur votre profil.</p>
+                                        <Link href="/profil" className="text-[10px] text-purple-500 hover:underline font-bold">Ajouter un enfant</Link>
+                                    </div>
+                                )}
+                            </div>
                         )}
                         
                         <div className="mt-6 text-center text-xs text-gray-500 leading-tight">
